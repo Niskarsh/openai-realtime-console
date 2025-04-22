@@ -59,12 +59,13 @@ Clarity & Coherence – Do their answers make sense and stay on topic?
 After the conversation, assign:
 A CEFR level (A1 to C2)
 A Proof-of-Skill level, using this guide:
-Proof-of-Skill Level    Description
-Novice  Can use simple phrases with very limited vocabulary and frequent grammar mistakes.
-Beginner    Can hold basic conversations with common grammar errors but is generally understood.
-Intermediate    Can communicate clearly with mostly accurate grammar and only minor slips.
-Proficient  Can speak fluently with few grammar errors, even in complex discussions.
-Expert  Can use grammar accurately and naturally, with full control over tone, nuance, and style.
+Level | Descriptor (plain English) | Grammar‑error rate* | Vocabulary richness† | Sentence complexity | Fluency & discourse control
+1 Novice | Can use simple phrases with very limited vocabulary and frequent grammar mistakes. | > 40 % of clauses contain errors that hide or change meaning | Type–token ratio (TTR) < 0.30 in a 1 000‑word sample | ≥ 90 % sentences are simple S‑V‑O, ≤ 7 tokens | Turns ≤ 6 s; pause‑per‑word > 400 ms; ≥ 4 fillers (“uh/um”) per 50 words
+2 Beginner | Can hold basic conversations with common grammar errors but is generally understood. | 20 – 40 % clauses have errors; meaning usually recoverable | TTR 0.30 – 0.45 | Mix of simple / compound; < 10 % subordinate clauses; 8‑12 tokens | Turns ≤ 15 s; pause‑per‑word 250 – 400 ms; 2‑4 fillers per 50 words
+3 Intermediate | Can communicate clearly with mostly accurate grammar and only minor slips. | 5 – 20 % minor errors; no loss of comprehension | TTR 0.45 – 0.60 | ≥ 25 % complex sentences (subordination, relatives); 12‑18 tokens | Sustains ≥ 30 s; pause‑per‑word 150 – 250 ms; ≤ 2 fillers per 50 words
+4 Proficient | Can speak fluently with few grammar errors, even in complex discussions. | 1 – 5 % isolated slips; self‑repairs rare | TTR 0.60 – 0.75 | Frequent advanced forms (conditionals, passives); 18‑25 tokens | 130 – 170 wpm for ≥ 60 s; discourse markers (however, nevertheless); adapts register
+5 Expert | Can use grammar accurately and naturally, with full control over tone, nuance, and style. | < 1 % slips, usually self‑corrected mid‑utterance | TTR > 0.75 | Flexible structure; deliberate rhythm; idioms & figurative language | Maintains coherent monologue ≥ 5 min; effortless tone‑shifts; near‑native pragmatic control
+
 End the session by stating:
 "Based on your responses, your CEFR level is ___, and your Proof-of-Skill level is ___."
 `;
