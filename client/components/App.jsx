@@ -188,7 +188,14 @@ export default function App() {
       if (!event.timestamp) {
         event.timestamp = new Date().toLocaleTimeString();
       }
-      setEvents((prev) => [event, ...prev]);
+      if ([
+        "conversation.item.input_audio_transcription.completed",
+        "response.done",
+      ].includes(event.type)) {
+        setEvents((prev) => [event, ...prev]);
+      }
+
+      // setEvents((prev) => [event, ...prev]);
     });
   }, [dataChannel]);
 
@@ -201,26 +208,30 @@ export default function App() {
           <h1>realtime console</h1>
         </div>
       </nav>
-      <main className="absolute top-16 left-0 right-0 bottom-0 flex">
-        <section className="flex-1 px-4 overflow-y-auto">
-          <EventLog events={events} />
+      <main className="absolute top-16 left-0 right-0 bottom-0">
+        <section className="absolute top-0 left-0 right-[380px] bottom-0 flex">
+          <section className="absolute top-0 left-0 right-0 bottom-32 px-4 overflow-y-auto">
+            <EventLog events={events} />
+          </section>
+          <section className="absolute h-32 left-0 right-0 bottom-0 p-4">
+            <SessionControls
+              startSession={startSession}
+              stopSession={stopSession}
+              sendClientEvent={sendClientEvent}
+              sendTextMessage={sendTextMessage}
+              events={events}
+              isSessionActive={isSessionActive}
+            />
+          </section>
         </section>
-        <aside className="w-[380px] p-4 pt-0 overflow-y-auto bg-gray-50">
-          <SessionControls
-            startSession={startSession}
-            stopSession={stopSession}
-            sendClientEvent={sendClientEvent}
-            sendTextMessage={sendTextMessage}
-            events={events}
-            isSessionActive={isSessionActive}
-          />
+        <section className="absolute top-0 w-[380px] right-0 bottom-0 p-4 pt-0 overflow-y-auto">
           <ToolPanel
             sendClientEvent={sendClientEvent}
             sendTextMessage={sendTextMessage}
             events={events}
             isSessionActive={isSessionActive}
           />
-        </aside>
+        </section>
       </main>
     </>
   );
