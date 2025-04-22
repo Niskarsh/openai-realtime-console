@@ -30,6 +30,10 @@ app.get("/token", async (req, res) => {
           model: "gpt-4o-realtime-preview-2024-12-17",
           voice: "alloy",
           instructions: prompt,
+          input_audio_transcription: {
+            model: "whisper-1",
+            language: "en"
+          },
         }),
       },
     );

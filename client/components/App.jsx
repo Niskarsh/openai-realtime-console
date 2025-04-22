@@ -132,6 +132,11 @@ export default function App() {
           event.timestamp = new Date().toLocaleTimeString();
         }
 
+        if (event.type === "conversation.item.input_audio_transcription.completed" ||
+          event.type === "response.done") {
+          // setEvents((prev) => [event, ...prev]);
+        }
+
         setEvents((prev) => [event, ...prev]);
       });
 
