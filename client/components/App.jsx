@@ -5,43 +5,106 @@ import SessionControls from "./SessionControls";
 import ToolPanel from "./ToolPanel";
 
 export default function App() {
+  // UI state and data channel
   const [isSessionActive, setIsSessionActive] = useState(false);
-  const [events, setEvents] = useState([]);
-  const [dataChannel, setDataChannel] = useState(null);
+  const [events, setEvents]                   = useState([]);
+  const [dataChannel, setDataChannel]         = useState(null);
+
+  // Core WebRTC connection
   const peerConnection = useRef(null);
+
+  // Live playback of AI responses
   const audioElement = useRef(null);
 
+  // ── NEW REFS FOR MIXED RECORDING ─────────────────────────────────
+  const micStreamRef       = useRef(null);   // user mic MediaStream
+  const aiStreamRef        = useRef(null);   // AI remote MediaStream
+  const audioCtxRef        = useRef(null);   // Web AudioContext
+  const destRef            = useRef(null);   // MediaStreamDestinationNode
+  const recorderRef        = useRef(null);   // MediaRecorder
+  const chunksRef          = useRef([]);     // collected audio chunks
+  const recorderStartedRef = useRef(false);  // guard to start only once
+
+  // wait until both mic & AI streams exist, then mix & start recording
+  function maybeStartRecorder() {
+    if (recorderStartedRef.current) return;
+    if (!micStreamRef.current || !aiStreamRef.current) return;
+
+    // 1) Create a Web AudioContext and a destination node
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const dest = ctx.createMediaStreamDestination();
+    audioCtxRef.current = ctx;
+    destRef.current     = dest;
+
+    // 2) Route the mic into the destination
+    const micSource = ctx.createMediaStreamSource(micStreamRef.current);
+    micSource.connect(dest);
+
+    // 3) Route the AI audio into the same destination
+    const aiSource = ctx.createMediaStreamSource(aiStreamRef.current);
+    aiSource.connect(dest);
+
+    // 4) Start a MediaRecorder on that mixed stream
+    const recorder = new MediaRecorder(dest.stream);
+    chunksRef.current = [];
+    recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
+    recorder.onstop = () => {
+      // assemble and play back the recording
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      const url  = URL.createObjectURL(blob);
+      const player = document.createElement("audio");
+      player.controls = true;
+      player.src = url;
+      document.body.appendChild(player);
+      player.play();
+    };
+
+    recorder.start();
+    recorderRef.current        = recorder;
+    recorderStartedRef.current = true;
+  }
+
+  // ── START A REALTIME SESSION ────────────────────────────────────────
   async function startSession() {
-    // Get a session token for OpenAI Realtime API
-    const tokenResponse = await fetch("/token");
-    const data = await tokenResponse.json();
+    // 1) fetch an ephemeral OpenAI key
+    const tokenRes = await fetch("/token");
+    const data     = await tokenRes.json();
     const EPHEMERAL_KEY = data.client_secret.value;
 
-    // Create a peer connection
+    // 2) set up RTCPeerConnection
     const pc = new RTCPeerConnection();
+    peerConnection.current = pc;
 
-    // Set up to play remote audio from the model
+    // 3) configure live AI audio playback
     audioElement.current = document.createElement("audio");
     audioElement.current.autoplay = true;
-    pc.ontrack = (e) => (audioElement.current.srcObject = e.streams[0]);
+    pc.ontrack = (e) => {
+      // play AI audio in real time
+      audioElement.current.srcObject = e.streams[0];
+      // store the AI stream for mixing
+      aiStreamRef.current = e.streams[0];
+      // try to start recording once AI arrives
+      maybeStartRecorder();
+    };
 
-    // Add local audio track for microphone input in the browser
-    const ms = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-    });
-    pc.addTrack(ms.getTracks()[0]);
+    // 4) get mic and add to PC
+    const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micStreamRef.current = micStream;
+    pc.addTrack(micStream.getAudioTracks()[0]);
+    // try to start recording once mic exists
+    maybeStartRecorder();
 
-    // Set up data channel for sending and receiving events
+    // 5) open data channel for event messages
     const dc = pc.createDataChannel("oai-events");
     setDataChannel(dc);
 
-    // Start the session using the Session Description Protocol (SDP)
+    // 6) SDP handshake
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
     const baseUrl = "https://api.openai.com/v1/realtime";
-    const model = "gpt-4o-realtime-preview-2024-12-17";
-    const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+    const model   = "gpt-4o-realtime-preview-2024-12-17";
+    const sdpRes  = await fetch(`${baseUrl}?model=${model}`, {
       method: "POST",
       body: offer.sdp,
       headers: {
@@ -49,105 +112,87 @@ export default function App() {
         "Content-Type": "application/sdp",
       },
     });
-
-    const answer = {
-      type: "answer",
-      sdp: await sdpResponse.text(),
-    };
+    const answer = { type: "answer", sdp: await sdpRes.text() };
     await pc.setRemoteDescription(answer);
 
-    peerConnection.current = pc;
+    // mark session active once data channel is open
+    dc.addEventListener("open", () => {
+      setIsSessionActive(true);
+      setEvents([]);
+    });
   }
 
-  // Stop current session, clean up peer connection and data channel
+  // ── STOP SESSION & RECORDING ────────────────────────────────────────
   function stopSession() {
-    if (dataChannel) {
-      dataChannel.close();
-    }
+    // stop the recorder (triggers playback via onstop handler)
+    recorderRef.current?.stop();
+    recorderStartedRef.current = false;
 
+    // clean up data channel
+    if (dataChannel) dataChannel.close();
+
+    // clean up PeerConnection and tracks
     peerConnection.current.getSenders().forEach((sender) => {
-      if (sender.track) {
-        sender.track.stop();
-      }
+      sender.track?.stop();
     });
-
-    if (peerConnection.current) {
-      peerConnection.current.close();
-    }
+    peerConnection.current.close();
+    peerConnection.current = null;
 
     setIsSessionActive(false);
     setDataChannel(null);
-    peerConnection.current = null;
   }
 
-  // Send a message to the model
+  // ── SEND EVENTS TO OPENAI ────────────────────────────────────────────
   function sendClientEvent(message) {
-    if (dataChannel) {
-      const timestamp = new Date().toLocaleTimeString();
-      message.event_id = message.event_id || crypto.randomUUID();
-
-      // send event before setting timestamp since the backend peer doesn't expect this field
-      dataChannel.send(JSON.stringify(message));
-
-      // if guard just in case the timestamp exists by miracle
-      if (!message.timestamp) {
-        message.timestamp = timestamp;
-      }
-      setEvents((prev) => [message, ...prev]);
-    } else {
-      console.error(
-        "Failed to send message - no data channel available",
-        message,
-      );
+    if (!dataChannel) {
+      console.error("No data channel available", message);
+      return;
     }
+  
+    // 1. Generate timestamp locally
+    const ts = new Date().toLocaleTimeString();
+    message.event_id = message.event_id || crypto.randomUUID();
+    if (!message.timestamp) {
+      message.timestamp = ts;
+    }
+  
+    // 2. Clone and clean the payload for the API
+    const payload = { ...message };
+    delete payload.timestamp;
+  
+    // 3. Send the cleaned payload
+    dataChannel.send(JSON.stringify(payload));
+  
+    // 4. Update local UI state with the full message (including timestamp)
+    setEvents((prev) => [message, ...prev]);
   }
+  
 
-  // Send a text message to the model
-  function sendTextMessage(message) {
-    const event = {
+  function sendTextMessage(text) {
+    sendClientEvent({
       type: "conversation.item.create",
       item: {
         type: "message",
         role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: message,
-          },
-        ],
+        content: [{ type: "input_text", text }],
       },
-    };
-
-    sendClientEvent(event);
+    });
     sendClientEvent({ type: "response.create" });
   }
 
-  // Attach event listeners to the data channel when a new one is created
+  // ── COLLECT BACKEND EVENTS ───────────────────────────────────────────
   useEffect(() => {
-    if (dataChannel) {
-      // Append new server events to the list
-      dataChannel.addEventListener("message", (e) => {
-        const event = JSON.parse(e.data);
-        if (!event.timestamp) {
-          event.timestamp = new Date().toLocaleTimeString();
-        }
-
-        if (event.type === "conversation.item.input_audio_transcription.completed" ||
-          event.type === "response.done") {
-          // setEvents((prev) => [event, ...prev]);
-        }
-
-        setEvents((prev) => [event, ...prev]);
-      });
-
-      // Set session active when the data channel is opened
-      dataChannel.addEventListener("open", () => {
-        setIsSessionActive(true);
-        setEvents([]);
-      });
-    }
+    if (!dataChannel) return;
+    dataChannel.addEventListener("message", (e) => {
+      const event = JSON.parse(e.data);
+      if (!event.timestamp) {
+        event.timestamp = new Date().toLocaleTimeString();
+      }
+      setEvents((prev) => [event, ...prev]);
+    });
   }, [dataChannel]);
 
+  // ── RENDER ──────────────────────────────────────────────────────────
   return (
     <>
       <nav className="absolute top-0 left-0 right-0 h-16 flex items-center">
@@ -156,30 +201,26 @@ export default function App() {
           <h1>realtime console</h1>
         </div>
       </nav>
-      <main className="absolute top-16 left-0 right-0 bottom-0">
-        <section className="absolute top-0 left-0 right-[380px] bottom-0 flex">
-          <section className="absolute top-0 left-0 right-0 bottom-32 px-4 overflow-y-auto">
-            <EventLog events={events} />
-          </section>
-          <section className="absolute h-32 left-0 right-0 bottom-0 p-4">
-            <SessionControls
-              startSession={startSession}
-              stopSession={stopSession}
-              sendClientEvent={sendClientEvent}
-              sendTextMessage={sendTextMessage}
-              events={events}
-              isSessionActive={isSessionActive}
-            />
-          </section>
+      <main className="absolute top-16 left-0 right-0 bottom-0 flex">
+        <section className="flex-1 px-4 overflow-y-auto">
+          <EventLog events={events} />
         </section>
-        <section className="absolute top-0 w-[380px] right-0 bottom-0 p-4 pt-0 overflow-y-auto">
+        <aside className="w-[380px] p-4 pt-0 overflow-y-auto bg-gray-50">
+          <SessionControls
+            startSession={startSession}
+            stopSession={stopSession}
+            sendClientEvent={sendClientEvent}
+            sendTextMessage={sendTextMessage}
+            events={events}
+            isSessionActive={isSessionActive}
+          />
           <ToolPanel
             sendClientEvent={sendClientEvent}
             sendTextMessage={sendTextMessage}
             events={events}
             isSessionActive={isSessionActive}
           />
-        </section>
+        </aside>
       </main>
     </>
   );
