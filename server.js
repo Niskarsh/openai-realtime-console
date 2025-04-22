@@ -1,6 +1,7 @@
 import express from "express";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import { prompt } from "./constants.js";
 import "dotenv/config";
 
 const app = express();
@@ -28,6 +29,7 @@ app.get("/token", async (req, res) => {
         body: JSON.stringify({
           model: "gpt-4o-realtime-preview-2024-12-17",
           voice: "verse",
+          instructions: prompt,
         }),
       },
     );
